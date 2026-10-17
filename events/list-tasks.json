@@ -1,0 +1,7 @@
+{
+  "httpMethod": "GET",
+  "path": "/tasks",
+  "pathParameters": null,
+  "body": null,
+  "requestContext": { "requestId": "local-test" }
+}

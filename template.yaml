@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  API Gateway lab: a serverless Tasks REST API
+  (Amazon API Gateway -> AWS Lambda -> Amazon DynamoDB) with an API key, usage plan and CORS.
+
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+    Description: API Gateway stage name (also part of the URL)
+  AllowedOrigin:
+    Type: String
+    Default: "*"
+    Description: Origin allowed by CORS (use your site's URL in production)
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Architectures: [arm64]
+    MemorySize: 128
+    Timeout: 10
+    Tracing: Active
+
+Resources:
+  # ---------- Data ----------
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${AWS::StackName}-tasks"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  # ---------- API ----------
+  TasksApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${AWS::StackName}-api"
+      StageName: !Ref StageName
+      TracingEnabled: true
+      Cors:
+        AllowOrigin: !Sub "'${AllowedOrigin}'"
+        AllowHeaders: "'Content-Type,x-api-key'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      Auth:
+        ApiKeyRequired: true          # every route needs the x-api-key header
+        UsagePlan:
+          CreateUsagePlan: PER_API
+          UsagePlanName: !Sub "${AWS::StackName}-usage-plan"
+          Description: Basic plan for the Tasks API lab
+          Throttle:
+            RateLimit: 10             # steady-state requests per second
+            BurstLimit: 20            # short bursts
+          Quota:
+            Limit: 1000               # requests per day
+            Period: DAY
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          MetricsEnabled: true
+          ThrottlingRateLimit: 50
+          ThrottlingBurstLimit: 100
+      GatewayResponses:               # add CORS headers to API Gateway's own errors (403, 429...)
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+              Access-Control-Allow-Headers: "'Content-Type,x-api-key'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+
+  # ---------- Compute ----------
+  TasksFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-handler"
+      CodeUri: src/
+      Handler: app.lambda_handler
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref TasksTable
+          ALLOWED_ORIGIN: !Ref AllowedOrigin
+      Policies:
+        - DynamoDBCrudPolicy:           # least privilege: only this table
+            TableName: !Ref TasksTable
+      Events:
+        ListTasks:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks
+            Method: GET
+        CreateTask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks
+            Method: POST
+        GetTask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks/{id}
+            Method: GET
+        UpdateTask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks/{id}
+            Method: PUT
+        DeleteTask:
+          Type: Api
+          Properties:
+            RestApiId: !Ref TasksApi
+            Path: /tasks/{id}
+            Method: DELETE
+
+  TasksFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${TasksFunction}"
+      RetentionInDays: 7
+
+  # ---------- Monitoring ----------
+  Api5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${AWS::StackName}-api-5xx"
+      AlarmDescription: The Tasks API returned server errors
+      Namespace: AWS/ApiGateway
+      MetricName: 5XXError
+      Dimensions:
+        - Name: ApiName
+          Value: !Sub "${AWS::StackName}-api"
+        - Name: Stage
+          Value: !Ref StageName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the Tasks API
+    Value: !Sub "https://${TasksApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}"
+  ApiKeyId:
+    Description: "API key ID. Get the value with: aws apigateway get-api-key --api-key <id> --include-value"
+    Value: !Ref TasksApiApiKey
+  TableName:
+    Description: DynamoDB table
+    Value: !Ref TasksTable
+  FunctionName:
+    Description: Lambda function
+    Value: !Ref TasksFunction

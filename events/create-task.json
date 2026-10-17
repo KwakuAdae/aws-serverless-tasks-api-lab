@@ -1,0 +1,8 @@
+{
+  "httpMethod": "POST",
+  "path": "/tasks",
+  "pathParameters": null,
+  "headers": { "Content-Type": "application/json" },
+  "body": "{\"title\": \"Learn API Gateway\"}",
+  "requestContext": { "requestId": "local-test" }
+}

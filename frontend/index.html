@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tasks API Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; padding: 16px; display: grid; place-items: start center;
+           font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+           background: linear-gradient(135deg, #232f3e, #0f1b2a); color: #e6edf3; }
+    .card { width: 100%; max-width: 560px; margin-top: 40px; background: #1b2633; border: 1px solid #2f3e50;
+            border-radius: 12px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+    h1 { margin: 0 0 4px; color: #ff9900; font-size: 24px; }
+    .sub { color: #9aa7b4; margin: 0 0 20px; font-size: 14px; }
+    form { display: flex; gap: 8px; }
+    input[type=text] { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #2f3e50;
+                       background: #0f1b2a; color: inherit; font-size: 15px; }
+    button { padding: 10px 14px; border: 0; border-radius: 8px; background: #ff9900; color: #111;
+             font-weight: 600; cursor: pointer; }
+    button.del { background: transparent; color: #f87171; padding: 4px 8px; }
+    ul { list-style: none; padding: 0; margin: 20px 0 0; }
+    li { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid #2f3e50; }
+    li span { flex: 1; word-break: break-word; }
+    li.done span { text-decoration: line-through; color: #9aa7b4; }
+    #status { margin-top: 16px; font-size: 13px; color: #9aa7b4; min-height: 1em; }
+    #status.err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Tasks</h1>
+    <p class="sub">Browser → Amazon API Gateway → AWS Lambda → Amazon DynamoDB</p>
+    <form id="add">
+      <input id="title" type="text" placeholder="What needs doing?" maxlength="200" required>
+      <button>Add</button>
+    </form>
+    <ul id="list"></ul>
+    <div id="status"></div>
+  </main>
+
+  <!-- config.js is written by scripts/01-deploy.sh and sets window.API_URL / window.API_KEY -->
+  <script src="config.js"></script>
+  <script>
+    const statusEl = document.getElementById("status");
+    const list = document.getElementById("list");
+
+    function setStatus(msg, isError = false) {
+      statusEl.textContent = msg;
+      statusEl.className = isError ? "err" : "";
+    }
+
+    async function api(path, options = {}) {
+      const res = await fetch(window.API_URL + path, {
+        ...options,
+        headers: { "Content-Type": "application/json", "x-api-key": window.API_KEY },
+      });
+      const body = res.status === 204 ? null : await res.json();
+      setStatus(`${options.method || "GET"} ${path} → ${res.status}`, !res.ok);
+      if (!res.ok) throw new Error(body?.message || res.statusText);
+      return body;
+    }
+
+    function render(tasks) {
+      list.replaceChildren(...tasks.map(task => {
+        const li = document.createElement("li");
+        li.className = task.done ? "done" : "";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = task.done;
+        box.onchange = () => api(`/tasks/${task.id}`, { method: "PUT", body: JSON.stringify({ done: box.checked }) }).then(load);
+        const span = document.createElement("span");
+        span.textContent = task.title;
+        const del = document.createElement("button");
+        del.className = "del";
+        del.textContent = "✕";
+        del.title = "Delete";
+        del.onclick = () => api(`/tasks/${task.id}`, { method: "DELETE" }).then(load);
+        li.append(box, span, del);
+        return li;
+      }));
+    }
+
+    const load = () => api("/tasks").then(render).catch(e => setStatus(e.message, true));
+
+    document.getElementById("add").onsubmit = async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("title");
+      try {
+        await api("/tasks", { method: "POST", body: JSON.stringify({ title: input.value }) });
+        input.value = "";
+        load();
+      } catch (err) { setStatus(err.message, true); }
+    };
+
+    if (!window.API_URL) {
+      setStatus("Missing config.js: run ./scripts/01-deploy.sh first.", true);
+    } else {
+      load();
+    }
+  </script>
+</body>
+</html>
