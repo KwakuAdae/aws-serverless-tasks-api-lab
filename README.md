@@ -326,8 +326,8 @@ free tier, REST API calls cost ~$3.50 per million.
 - **WAF**: attach AWS WAF to block abusive IPs and common attacks
 - **HTTP API**: rebuild this as a cheaper, faster HTTP API, see [docs/03-rest-vs-http-api.md](docs/03-rest-vs-http-api.md)
 - **CI/CD**: run `pytest` and `sam deploy` from GitHub Actions
-- Sister labs: [ECS Fargate](https://github.com/KwakuAdae/aws-ecr-ecs-fargate-lab) ·
-  [EKS](https://github.com/KwakuAdae/kwakuadae-aws-eks-website-lab)
+- Sister labs: [ECS Fargate](https://github.com/KwakuAdae/aws-ecs-fargate-website-lab) ·
+  [EKS](https://github.com/KwakuAdae/aws-eks-website-lab)
 
 ## Troubleshooting
 
